@@ -1,0 +1,1723 @@
+%{
+#include "grammarTypes.hpp"
+#include <iostream>
+#include <string>
+int yylex();
+int yyerror(std::string msg);
+#include <unordered_map>
+
+std::unordered_map<std::string, std::string> typeMap;
+std::unordered_map<std::string, std::string> FunctypeMap;
+AST *Tree;
+
+std::vector<SYMBOL_BLOCK*> Var_Scope;
+std::vector<SYMBOL_BLOCK*> Func_Scope;
+
+bool func_param = false;
+
+int counterr;
+%}
+
+// Acknowledgement: https://stackoverflow.com/a/5811596/15215646 for line locations automatically handled by flex and bison.
+
+%union {
+	std::pair<std::string, std::string>* identifier;
+	char* str;
+	int	num;
+	char sym;
+	float flt;
+	class VAR_DECL* var_entry;
+	class STRING_DECL* str_entry;
+	class SYMBOL_BLOCK* sb_entry;
+	class AST_Node* node;
+}
+
+%type <node> aug_if_stmt
+%type <str> var_type
+
+
+%type <node> expr expr_prefix factor factor_prefix
+
+%type <node> postfix_expr primary mulop addop 
+
+%type <node> if_stmt else_part cond compop
+
+%type <node> string_decl var_decl func_decl func_body decl
+
+
+%type <node> id_list
+
+%type <node> id_tail id 
+
+%type <node> pgm_body
+
+%type <node> func_declarations param_decl 
+
+%type <node> param_decl_list param_decl_tail
+
+%type <node> stmt stmt_list read_stmt 
+
+%type <node> write_stmt assign_stmt return_stmt
+
+%type <node> while_stmt base_stmt 
+
+%type <node> assign_expr
+
+%type <node> aug_else_part
+
+%type <node> aug_stmt aug_stmt_list
+
+%type <node> call_expr expr_list expr_list_tail
+
+
+
+%token<identifier> IDENTIFIER
+%token<str> STRINGLITERAL
+%token<str> INTLITERAL
+%token<str> FLOATLITERAL
+
+%token VOID
+
+%token<str> PROGRAM
+%token<str> BEGIN_PROG
+%token<str> END
+%token<str> STRING 
+%token<str> INT 
+%token<str> FLOAT
+%token<str> FUNCTION
+%token<str> READ 
+%token<str> WRITE 
+%token<str> RETURN 
+%token<str> IF
+%token<str> ENDIF
+%token<str> ELSE
+%token<str> WHILE
+%token<str> ENDWHILE
+%token<str> BREAK
+%token<str> CONTINUE
+%token<str> ASSIGN
+
+%token<sym> SEMICOLON
+%token<sym> COMMA
+%token<sym> OPENPARAN
+%token<sym> CLOSEPARAN
+%token<sym> PLUS
+%token<sym> MINUS
+%token<sym> MUL
+%token<sym> DIV
+
+%token<sym> LESSTHAN
+%token<sym> GREATERTHAN
+%token<sym> EQUALTO
+%token<sym> NOT
+
+%locations
+
+%%
+
+program: PROGRAM id BEGIN_PROG 
+{	
+	currBlock = new SYMBOL_BLOCK();
+	currBlock->name = "GLOBAL_200010021";
+	SYMBOL_TABLE.push_back(currBlock);
+	Var_Scope.push_back(currBlock);
+	
+
+	Tree = new AST();
+
+} pgm_body END {
+
+	Var_Scope.pop_back();
+	Tree->Root = ($5);	
+	Tree->printCode();
+
+	// for (auto x : typeMap){
+	// 	cout << x.first << ": " << x.second << "\n";
+	// }
+
+
+	// cout << "sys halt" << "\n";
+
+}; 
+
+id: IDENTIFIER {
+				($$) = new AST_Node();
+				AST_Node* gen_node = ($$);
+
+				if (isDecl){
+					string id = ($1)->first;
+					typeMap[id] = currDeclType;
+				}
+
+				string Vartype = "s";
+
+				int ScopeIndx = -1;
+				for (int i = Var_Scope.size() - 1; i >=0; i--){
+
+					pair<bool, string> resp = Var_Scope[i]->findID(($1)->first); 
+
+					if (resp.first){
+						ScopeIndx = i;
+						Vartype = resp.second;
+						break;
+					}
+				}
+				
+				
+
+				string id_scope = ($1)->first;
+				if (Vartype != "s"){
+					if (ScopeIndx > 0){
+						id_scope = Var_Scope[ScopeIndx]->variable_to_dollar[id_scope];
+					}
+				} else{
+
+					if (ScopeIndx != -1)
+					id_scope += "_" + Var_Scope[ScopeIndx]->name;
+				}
+
+				
+
+				if (currVarType == "WRITE"){
+					string writeinst = "write";					
+					string code = "sys " + writeinst + Vartype + " " + id_scope;
+					gen_node->code.push_back(code);
+				}
+
+				if (currVarType == "READ"){
+					string readinst = "read";
+					string code = "sys " + readinst + Vartype + " " + id_scope;
+					gen_node->code.push_back(code);
+				}
+
+				if (currVarType == "INT"  || currVarType == "FLOAT"){
+					if (currBlock->first == "") {
+                	currBlock->first = "VAR";
+            		}
+
+            		string ID = ($1)->first;
+					for (auto var: currBlock->Variables) {
+            			if (var->id == ID) {
+                		// cout << ";DECLARATION ERROR " << ID << " (previous declaration was at line " << var->line << ")"<< endl;
+               	 		// return 0;
+            			}
+					}
+
+					for (auto strvar: currBlock->StringVar) {
+            			if (strvar->id == ID) {
+                		// cout << ";DECLARATION ERROR " << ID << " (previous declaration was at line " << strvar->line  << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+					VAR_DECL* newdecl = new VAR_DECL();
+
+        	    	newdecl->type = currVarType;
+            		newdecl->id = ID;
+            		newdecl->line = @$.first_line;
+
+					currBlock->Variables.push_back(newdecl);
+
+					if (func_param){
+						currBlock->variable_to_dollar[ID] = "$" + to_string(Var_Scope.back()->getArg());
+					} else if (Var_Scope.size() > 1){
+						currBlock->variable_to_dollar[ID] = "$-" + to_string(Var_Scope.back()->getLink());
+					}
+					else{
+					string code = "var " + ID;
+					gen_node->code.push_back(code);
+					}
+				}
+
+
+
+				gen_node->first = ($1)->first;
+};
+
+pgm_body: decl func_declarations {
+        ($$) = new AST_Node();
+
+        AST_Node* curNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(curNode, child1);
+
+		if (child1){
+		curNode->children.push_back(child1);
+		}
+
+		curNode->code.push_back("push");
+        curNode->code.push_back("jsr main");
+        curNode->code.push_back("pop");
+        curNode->code.push_back("sys halt");
+
+		Tree->passCodeUp(curNode, child2);
+		if (child2){
+		curNode->children.push_back(child2);
+		}
+
+};
+
+decl: string_decl decl {
+	($$) = new AST_Node();
+
+    AST_Node* curNode = ($$);
+
+    AST_Node* child1 = ($1);
+
+	Tree->passCodeUp(curNode, child1);
+
+	if (child1)
+	curNode->children.push_back(child1);
+
+    AST_Node* child2 = ($2);
+
+	Tree->passCodeUp(curNode, child2);
+
+	
+	if (child2)
+	curNode->children.push_back(child2);
+}
+|var_decl decl{
+	($$) = new AST_Node();
+
+    AST_Node* curNode = ($$);
+
+    AST_Node* child1 = ($1);
+
+	if (child1)
+	($$)->children.push_back(child1);
+
+    AST_Node* child2 = ($2);
+
+	if (child2)
+	($$)->children.push_back(child2);
+
+
+	Tree->passCodeUp(curNode, child1);
+	Tree->passCodeUp(curNode, child2);
+
+	if (child1)
+	curNode->children.push_back(child1);
+
+	if (child2)
+	curNode->children.push_back(child2);
+}
+|%empty{
+	($$) = NULL;
+};
+
+string_decl: STRING IDENTIFIER ASSIGN STRINGLITERAL SEMICOLON{
+	if (currBlock->first==""){
+		currBlock->first = "STR_DECL";
+	}
+
+	string id = ($2)->first;
+    int line = @2.first_line;
+    string stringliteral = ($4 != NULL) ? (string) $4 : "";
+
+        for (auto& var: currBlock->Variables) {
+            if (var->id == id) {
+                // cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << var->line << ")"<< endl;
+                // return 0;
+            }
+        }
+
+        for (auto& strvar: currBlock->StringVar) {
+            if (strvar->id == id) {
+                // cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << strvar->line  << ")"<< endl;
+                // return 0;
+            }
+        }
+    
+        STRING_DECL* newdecl = new STRING_DECL();
+        typeMap[id] = "STRING";
+        newdecl->type = "STRING";
+        newdecl->id = id;
+        newdecl->value = stringliteral;
+        newdecl->line = line;
+
+		($$) = new AST_Node();
+		AST_Node* gen_node = ($$);
+
+		string code = "str " + newdecl->id + "_" + Var_Scope.back()->name + " " + newdecl->value;
+		// cucrrBlock->CODE_BLK.push_back(code); 
+
+		gen_node->type = "STRING";
+		gen_node->code.push_back(code);
+
+
+        currBlock->StringVar.push_back(newdecl);
+};
+
+
+var_decl: var_type
+				{
+					// currVarType = ($1 != NULL) ? (string) $1 : "";
+					isDecl = true;
+				}
+				 id_list SEMICOLON {
+					($$) = new AST_Node();
+
+					AST_Node* currNode = ($$);
+					AST_Node* child = ($3);
+
+					Tree->passCodeUp(currNode, child);
+
+					if (child)
+					currNode->children.push_back(child);
+					isDecl = false;
+				 };
+
+var_type: FLOAT {
+	currDeclType = "FLOAT";
+	currVarType = "FLOAT";} 
+	| INT 
+	{currDeclType = "INT";
+	currVarType = "INT";};
+
+any_type: var_type | VOID
+{
+	currVarType = "VOID";
+}
+;
+
+id_list: id 
+			{	
+
+				if (currVarType == "INT" || currVarType == "FLOAT"){
+					if (currBlock->first == ""){
+						currBlock->first = "VAR";
+					}
+
+					string id = ($1)->first;
+            		int line = @1.first_line;
+					// cout << id << ": " << "id_list\n";
+
+					for (auto var: currBlock->Variables) {
+            			if (var->id == id) {
+                		// cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << var->line << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+        			for (auto strvar: currBlock->StringVar) {
+            			if (strvar->id == id) {
+                		// cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << strvar->line << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+		            VAR_DECL* newdecl = new VAR_DECL();
+
+        	    	newdecl->type = currVarType;
+            		newdecl->id = id;
+            		newdecl->line = line;
+
+            		// currBlock->Variables.push_back(newdecl);
+
+					
+
+				}
+
+				
+			} 
+			id_tail { 
+				($$) = new AST_Node();
+				AST_Node* child1 = ($1);
+				AST_Node* child2 = ($3);
+
+				Tree->passCodeUp(($$), child1);
+				Tree->passCodeUp(($$), child2);
+
+				if (child1)
+				($$)->children.push_back(child1);
+				
+				if (child2)
+				($$)->children.push_back(child2);
+
+			};
+
+id_tail: COMMA id {
+	if (currVarType == "INT" || currVarType == "FLOAT"){
+					if (currBlock->first == ""){
+						currBlock->first = "VAR";
+					}
+
+					string id = ($2)->first;
+            		int line = @2.first_line;
+
+					// cout << id << ": " << "id_tail\n";
+
+					for (auto& var: currBlock->Variables) {
+            			if (var->id == id) {
+                		// cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << var->line << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+        			for (auto& strvar: currBlock->StringVar) {
+            			if (strvar->id == id) {
+                		// cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << strvar->line << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+		            VAR_DECL* newdecl = new VAR_DECL();
+
+        	    	newdecl->type = currVarType;
+            		newdecl->id = id;
+            		newdecl->line = line;
+
+            		// currBlock->Variables.push_back(newdecl);
+
+				}
+} id_tail {
+	($$) = new AST_Node();
+	AST_Node* c1 = ($2);
+	AST_Node* c2 = ($4);
+
+	Tree->passCodeUp(($$), c1);
+	Tree->passCodeUp(($$), c2);
+
+	if (c1)
+	($$)->children.push_back(c1);
+	
+	if (c2)
+	($$)->children.push_back(c2);
+	
+
+} | %empty { ($$) = NULL;};
+
+param_decl_list: param_decl param_decl_tail 
+{
+		($$) = new AST_Node();
+
+        AST_Node* curNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+		if(child1)
+	($$)->children.push_back(child1);
+
+
+        AST_Node* child2 = ($2);
+
+		if(child2)
+	($$)->children.push_back(child2);
+
+
+		Tree->passCodeUp(curNode, child1);
+		Tree->passCodeUp(curNode, child2);
+}
+| %empty {($$) = NULL;};
+
+param_decl: var_type {
+	func_param = true;
+} id{				
+					func_param = false;
+					if (currBlock->first == ""){
+						currBlock->first = "VAR";
+					}
+					string type = ($1 != NULL) ? (string) $1 : "";
+					string id = ($3)->first;
+            		int line = @2.first_line;
+
+					for (auto var: currBlock->Variables) {
+            			if (var->id == id) {
+                		// cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << var->line << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+        			for (auto strvar: currBlock->StringVar) {
+            			if (strvar->id == id) {
+                		// cout << ";DECLARATION ERROR " << id << " (previous declaration was at line " << strvar->line << ")"<< endl;
+                		// return 0;
+            			}
+        			}
+
+		            VAR_DECL* newdecl = new VAR_DECL();
+
+        	    	newdecl->type = type;
+            		newdecl->id = id;
+            		newdecl->line = line;
+
+            		// currBlock->Variables.push_back(newdecl);
+
+					($$) = new AST_Node();
+
+        			AST_Node* currNode = ($$);
+
+        			// AST_Node* child1 = ($1);
+
+		        	AST_Node* child2 = ($3);
+
+					// Tree->passCodeUp(currNode, child1);
+					Tree->passCodeUp(currNode, child2);
+};
+
+param_decl_tail: COMMA param_decl param_decl_tail 
+{
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($2);
+
+        AST_Node* child2 = ($3);
+
+		Tree->passCodeUp(currNode, child1);
+		Tree->passCodeUp(currNode, child2);
+}
+| %empty {($$) = NULL;};
+
+
+func_declarations: func_decl func_declarations {
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		Tree->passCodeUp(currNode, child2);
+
+		if (child1 != NULL){
+		($$)->children.push_back(child1);
+		}
+
+		if (child2!=NULL)
+		($$)->children.push_back(child2);
+
+}
+| 
+%empty {($$) = NULL;};
+
+func_decl: FUNCTION any_type IDENTIFIER 
+			{
+				string name = ($3)->first;
+        
+        		currBlock = new SYMBOL_BLOCK();
+        		currBlock->name = name;
+        		SYMBOL_TABLE.push_back(currBlock);
+				Var_Scope.push_back(currBlock);
+				Func_Scope.push_back(currBlock);
+
+				if (FunctypeMap.find(name) != FunctypeMap.end()){
+					cerr << "Function " << name << " redeclared" << "\n";
+					exit(1);
+				}
+
+				FunctypeMap[name] = currVarType;
+			}
+			OPENPARAN param_decl_list CLOSEPARAN BEGIN_PROG func_body END
+			
+			{
+				($$) = new AST_Node();
+
+        		AST_Node* curNode = ($$);
+
+        		AST_Node* child1 = ($6);
+
+				if (child1)
+	($$)->children.push_back(child1);
+
+
+        		AST_Node* child2 = ($9);
+
+				if (child2)
+	($$)->children.push_back(child2);
+
+
+				curNode->code.push_back("label " + ($3)->first);
+				curNode->code.push_back("link " + to_string(Var_Scope.back()->link - 1));
+
+
+				Tree->passCodeUp(curNode, child1);
+				Tree->passCodeUp(curNode, child2);
+
+				string name = ($3)->first;
+				string func_type = FunctypeMap[name];
+
+				if (func_type == "VOID"){
+					curNode->code.push_back("unlnk");
+					curNode->code.push_back("ret");
+				}				
+
+				Var_Scope.pop_back();
+				Func_Scope.pop_back();
+			}
+;
+
+func_body: decl stmt_list
+{
+		($$) = new AST_Node();
+
+        AST_Node* curNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+		if (child1)
+	($$)->children.push_back(child1);
+
+
+        AST_Node* child2 = ($2);
+
+		if (child2)
+	($$)->children.push_back(child2);
+
+
+		Tree->passCodeUp(curNode, child1);
+		Tree->passCodeUp(curNode, child2);
+}
+;
+
+stmt_list: stmt stmt_list 
+{
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		Tree->passCodeUp(currNode, child2);
+}
+| %empty {($$) = NULL;};
+
+stmt: base_stmt {
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		// Tree->passCodeUp(curNode, child2);
+}
+| if_stmt {
+	($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		// Tree->passCodeUp(curNode, child2);
+}
+| while_stmt {
+	($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+};
+
+base_stmt: assign_stmt 
+{
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		// Tree->passCodeUp(curNode, child2);
+}
+| read_stmt 
+{
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		// Tree->passCodeUp(curNode, child2);
+}
+| write_stmt 
+{
+	($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+
+		// Tree->passCodeUp(curNode, child2);
+}
+| return_stmt {($$) = ($1);};
+
+assign_stmt: assign_expr {
+	// currVarType = "Assign"; 
+} SEMICOLON
+{
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($1);
+
+		if (child1)
+	($$)->children.push_back(child1);
+
+
+        // AST_Node* child2 = ($2);
+
+		Tree->passCodeUp(currNode, child1);
+		// Tree->passCodeUp(curNode, child2);
+}
+;
+
+assign_expr: IDENTIFIER ASSIGN expr {
+
+		($$) = new AST_Node();
+
+        AST_Node* currNode = ($$);
+
+        AST_Node* child1 = ($3);
+
+        // AST_Node* child2 = ($2);
+
+		string ID = ($1)->first;
+
+		Tree->passCodeUp(currNode, child1);
+
+		string Vartype = "s";
+
+		int ScopeIndx = -1;
+		for (int i = Var_Scope.size() - 1; i >=0; i--){
+
+			pair<bool, string> resp = Var_Scope[i]->findID(($1)->first); 
+
+			if (resp.first){
+				ScopeIndx = i;
+				Vartype = resp.second;
+				break;
+			}
+		}
+
+		if (ScopeIndx > 0){
+			ID = Var_Scope[ScopeIndx]->variable_to_dollar[ID];
+		}
+
+		string reg;
+		if (child1){
+			reg = child1->exprReg;
+
+			
+			if ((typeMap.find(reg) != typeMap.end()) && (typeMap.find(ID) != typeMap.end())){
+				
+				string reg2 = Tree->getNewReg();
+				string code1 = "move " + reg + " " + reg2;
+				code1 += "\n";
+				string code2 = "move " + reg2 + " " + ID;
+				code1 += code2;
+				currNode->code.push_back(code1);
+				// currNode->code.push_back(code2);
+			} else {
+				
+				string code = "move " + reg + " " + ID;
+				currNode->code.push_back(code);
+			}
+		}
+
+};
+
+read_stmt: READ OPENPARAN 
+			{
+				currVarType = "READ";
+			}
+			id_list CLOSEPARAN SEMICOLON
+			{
+				($$) = new AST_Node();
+
+        		AST_Node* curNode = ($$);
+
+        		AST_Node* child1 = ($4);
+
+       			// AST_Node* child2 = ($2);
+
+				Tree->passCodeUp(curNode, child1);
+				// Tree->passCodeUp(curNode, child2);
+			}
+			;
+
+write_stmt: WRITE OPENPARAN
+			{
+				currVarType = "WRITE";
+				// cucrrBlock = new SYMBOL_BLOCK();
+				// curcrBlock->name = "BLOCK";
+				// SYMBOdL_TABLE.push_back(cucrrBlock);
+			}
+			 id_list CLOSEPARAN SEMICOLON
+			{
+				($$) = new AST_Node();
+
+        		AST_Node* curNode = ($$);
+
+        		AST_Node* child1   = ($4);
+
+        		// AST_Node* child2 = ($2);
+
+				Tree->passCodeUp(curNode, child1);
+				// Tree->passCodeUp(curNode, child2);
+			} 
+			;
+
+return_stmt: RETURN expr SEMICOLON
+{
+	($$) = new  AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($2);
+
+	Tree->passCodeUp(currNode, child1);
+
+	if (child1){
+
+		string varType;
+
+		if (child1->type == "INT" || child1->type == "i"){
+			varType = "i";
+		} else{
+			varType = "r";
+		}
+
+		string code = "";
+		if (child1->exprReg.substr(0,1) != "$"){
+		code = "move " + child1->exprReg + " " + "$" + to_string(Func_Scope.back()->arg);
+		} else{
+			string tmpreg = Tree->getNewReg();
+			code = "move " + child1->exprReg + " " + tmpreg;
+			code += "\n";
+			code += "move " + tmpreg + " " + "$" + to_string(Func_Scope.back()->arg);
+		}
+		currNode->code.push_back(code);
+        currNode->code.push_back("unlnk");
+        currNode->code.push_back("ret");
+	}
+};
+
+expr: expr_prefix factor
+{
+		($$) = new AST_Node();
+
+		AST_Node* curNode = ($$);
+
+		AST_Node* child1   = ($1);
+
+		if (child1)
+		($$)->children.push_back(child1);
+
+		AST_Node* child2   = ($2);
+
+		if (child2)
+		($$)->children.push_back(child2);
+
+
+		if (child1 && child2){
+			Tree->passCodeUp(curNode, child1);
+			Tree->passCodeUp(curNode, child2);
+
+			curNode->exprReg = Tree->getNewReg();
+			
+			if (child1->type == "FLOAT"){
+
+				if(child1->expr_prefix_op == "addi"){
+					child1->expr_prefix_op = "addr";
+				} else{
+					child1->expr_prefix_op = "subr";
+				} 
+			}
+			// addop x y r3
+			string code1 = "move " + child1->exprReg + " " + curNode->exprReg;;
+			string code = child1->expr_prefix_op + " " + child2->exprReg + " " + curNode->exprReg;
+			// cout << code1 << "\n" << code << "\n";
+			curNode->code.push_back(code1);
+			curNode->code.push_back(code);
+			curNode->type = child2->type;
+		} else{
+			Tree->passCodeUp(curNode, child2);
+
+			curNode->exprReg = child2->exprReg;
+			curNode->type = child2->type;
+		}
+
+}
+;
+expr_prefix: expr_prefix factor addop 
+{
+		($$) = new AST_Node();
+
+		AST_Node* curNode = ($$);
+
+		AST_Node* child1   = ($1);
+
+		if(child1)
+	($$)->children.push_back(child1);
+
+		AST_Node* child2   = ($2);
+
+		if(child2)
+	($$)->children.push_back(child2);
+
+
+		AST_Node* child3   = ($3);
+
+		if(child3)
+	($$)->children.push_back(child3);
+
+
+		if (child1 && child2){
+			Tree->passCodeUp(curNode, child1);
+			Tree->passCodeUp(curNode, child2);
+
+			curNode->exprReg = Tree->getNewReg();
+
+			if (child1->type == "FLOAT"){
+
+				if(child1->expr_prefix_op == "addi"){
+					child1->expr_prefix_op = "addr";
+				} else{
+					child1->expr_prefix_op = "subr";
+				} 
+			}
+
+			string code1 = "move " + child1->exprReg + " " + curNode->exprReg;
+			string code = child1->expr_prefix_op + " " + child2->exprReg + " " + curNode->exprReg;
+			// cout << code << "\n";
+			curNode->code.push_back(code1);
+			curNode->code.push_back(code);
+
+			curNode->type = child1->type;
+		} else{
+			Tree->passCodeUp(curNode, child2);
+
+			curNode->exprReg = child2->exprReg;
+			curNode->type = child2->type;
+
+		}
+
+		curNode->expr_prefix_op = child3->add_op_type;
+}
+| %empty {($$) = NULL;};
+
+factor: factor_prefix postfix_expr
+{
+		($$) = new AST_Node();
+
+		AST_Node* curNode = ($$);
+
+		AST_Node* child1   = ($1);
+		AST_Node* child2   = ($2);
+
+		if (child1 && child2){
+			Tree->passCodeUp(curNode, child1);
+			Tree->passCodeUp(curNode, child2);
+
+			if (child1->type == "FLOAT"){
+
+				if(child1->factor_op == "muli"){
+					child1->factor_op = "mulr";
+				} else{
+					child1->factor_op = "divr";
+				} 
+			}
+
+			curNode->exprReg = Tree->getNewReg();
+			string code1 = "move " + child1->exprReg + " " + curNode->exprReg;
+			string code = child1->factor_op + " " + child2->exprReg + " " + curNode->exprReg;
+
+			curNode->code.push_back(code1);
+			curNode->code.push_back(code);
+
+			curNode->type = child1->type;
+		} else{
+			Tree->passCodeUp(curNode, child2);
+			curNode->exprReg = child2->exprReg;
+			curNode->type = child2->type;
+		}
+}
+;
+
+factor_prefix: factor_prefix postfix_expr mulop 
+{
+		($$) = new AST_Node();
+
+		AST_Node* curNode = ($$);
+
+		AST_Node* child1   = ($1);
+
+		if (child1)
+	($$)->children.push_back(child1);
+
+		AST_Node* child2   = ($2);
+
+		if (child2)
+	($$)->children.push_back(child2);
+
+
+		AST_Node* child3   = ($3);
+
+		if (child3)
+	($$)->children.push_back(child3);
+
+
+		if (child1 && child2){
+			Tree->passCodeUp(curNode, child1);
+			Tree->passCodeUp(curNode, child2);
+
+			if (child1->type == "FLOAT"){
+
+				if(child1->factor_op == "muli"){
+					child1->factor_op = "mulr";
+				} else{
+					child1->factor_op = "divr";
+				} 
+			}
+
+			curNode->exprReg = Tree->getNewReg();
+			string code1 = "move " + child1->exprReg + " " + curNode->exprReg;
+			string code = child1->factor_op + " " + child2->exprReg + " " + curNode->exprReg;
+
+			curNode->code.push_back(code1);			
+			curNode->code.push_back(code);
+
+			curNode->type = child1->type;
+		} else{
+			Tree->passCodeUp(curNode, child2);
+			curNode->exprReg = child2->exprReg;
+			curNode->type = child2->type;
+		}
+
+		if (child3){
+			curNode->factor_op = child3->mul_op_type;
+		}
+}
+| %empty {($$) = NULL;};
+
+postfix_expr: primary 
+{
+		($$) = new AST_Node();
+
+		AST_Node* curNode = ($$);
+
+		AST_Node* child1   = ($1);
+
+		if (child1){
+			Tree->passCodeUp(curNode, child1);
+			curNode->exprReg = child1->exprReg;
+			curNode->type = child1->type;
+		}
+}
+| call_expr {($$) = ($1);};
+
+call_expr: IDENTIFIER OPENPARAN expr_list CLOSEPARAN
+{
+	($$) = new AST_Node();
+	AST_Node* child1 = ($3);
+	Tree->passCodeUp(($$), child1);
+
+	($$)->exprReg = Tree->getNewReg();
+
+	vector<string> push;
+	push.push_back("push");
+
+	for (auto node : child1->expr){
+		push.push_back("push " + node->exprReg);
+	}
+
+	AST_Node* currNode = ($$);
+
+	for (auto code : push){
+		currNode->code.push_back(code);
+	}
+
+	currNode->code.push_back("jsr " + ($1)->first);
+
+	for (int i = 0 ; i < push.size() -1 ; i++){
+		currNode->code.push_back("pop");
+	}
+
+	currNode->code.push_back("pop " + currNode->exprReg);
+	currNode->type = FunctypeMap[($1)->first];
+}
+;
+expr_list: expr expr_list_tail {
+	($$) = new AST_Node();
+	AST_Node* child1 = ($1);
+
+	if (child1)
+	($$)->children.push_back(child1);
+
+	AST_Node* child2 = ($2);
+	
+	if (child2)
+	($$)->children.push_back(child2);
+
+	Tree->passCodeUp(($$), child1);
+	Tree->passCodeUp(($$), child2);
+
+
+	if (child1){
+		($$)->expr.push_back(child1);
+	}
+
+	if (child2){
+
+		for (auto exp : child2->expr){
+		($$)->expr.push_back(exp);
+		}
+	}
+
+} | %empty {($$) = NULL;};
+expr_list_tail: COMMA expr expr_list_tail 
+	{
+		($$) = new AST_Node();
+	AST_Node* child1 = ($2);
+	AST_Node* child2 = ($3);
+	Tree->passCodeUp(($$), child1);
+	Tree->passCodeUp(($$), child2);
+
+
+	if (child1){
+		($$)->expr.push_back(child1);
+	}
+
+	if (child2){
+
+		for (auto exp : child2->expr){
+		($$)->expr.push_back(exp);
+		}
+	}
+	}
+| %empty {($$) = NULL;};
+
+primary: OPENPARAN expr CLOSEPARAN {($$) = ($2);} 
+| IDENTIFIER 
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+
+	string ID = ($1)->first;
+
+	bool inScope = false;
+	for (int i=0; i<currBlock->Variables.size(); i++){
+		if(currBlock->Variables[i]->id == ($1)->first){
+			inScope = true;
+			if(currBlock->Variables[i]->type == "INT"){
+				// currNode->type = "INT";
+			} else{
+				// currNode->type = "FLOAT";
+			}
+		}
+	}
+
+	if(!inScope){
+		for (int i=0; i<SYMBOL_TABLE[0]->Variables.size(); i++){
+			if(SYMBOL_TABLE[0]->Variables[i]->id == ($1)->first){
+				inScope = true;
+				if(SYMBOL_TABLE[0]->Variables[i]->type == "INT"){
+					// currNode->type = "INT";
+				} else{
+					// currNode->type = "FLOAT";
+				}
+			}
+		}
+	}
+
+	int ScopeIndx = -1;
+	for (int i = Var_Scope.size() - 1; i >=0; i--){
+
+		pair<bool, string> resp = Var_Scope[i]->findID(($1)->first); 
+
+		if (resp.first){
+			ScopeIndx = i;
+			currNode->type = resp.second;
+			break;
+		}
+	}
+
+	if (ScopeIndx == 0){
+		currNode->exprReg = ID;
+	} else{
+		currNode->exprReg = Var_Scope[ScopeIndx]->variable_to_dollar[ID];
+	}
+}
+| INTLITERAL 
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+
+	currNode->type = "INT";
+	currNode->exprReg = Tree->getNewReg();
+
+	string INT = ($1 != NULL) ? (string)($1) : "";
+
+	string code = "move " + INT + " " + currNode->exprReg;
+	currNode->code.push_back(code);
+	
+}
+| FLOATLITERAL
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+
+	currNode->type = "FLOAT";
+	currNode->exprReg = Tree->getNewReg();
+	
+	string FLOAT = ($1 != NULL) ? (string)($1) : "";
+
+	string code = "move " + FLOAT + " " + currNode->exprReg;
+	currNode->code.push_back(code);
+}
+;
+
+addop: PLUS
+{
+	($$) = new AST_Node();
+	($$)->add_op_type = "addi"; 
+}
+| MINUS 
+{
+	($$) = new AST_Node();
+	($$)->add_op_type = "subi";
+}
+;
+
+mulop: MUL 
+{
+	($$) = new AST_Node();
+	($$)->mul_op_type = "muli";
+}
+| DIV
+{
+	($$) = new AST_Node();
+	($$)->mul_op_type = "divi";
+}
+;
+
+if_stmt: IF 
+		{
+			currBlock = new SYMBOL_BLOCK();
+			currBlock->name = "BLOCK" + to_string(counterr);
+			counterr++;
+			SYMBOL_TABLE.push_back(currBlock);
+			Var_Scope.push_back(currBlock);
+		}
+		OPENPARAN cond CLOSEPARAN decl stmt_list {
+			Var_Scope.pop_back();
+		} else_part ENDIF
+		{
+			($$) = new AST_Node();
+			AST_Node* curNode = ($$);
+
+
+			AST_Node* child1 = ($4);
+
+			if (child1)
+			($$)->children.push_back(child1);
+
+			AST_Node* child2 = ($6);
+			
+			if (child2)
+			($$)->children.push_back(child2);
+			AST_Node* child3 = ($7);
+
+			if (child3)
+			($$)->children.push_back(child3);
+
+			AST_Node* child4 = ($9);
+
+			if (child4)
+			($$)->children.push_back(child4);
+
+
+			if (child1){
+
+				string iflabel = Tree->getNewLabel();
+				string endiflabel = Tree->getNewLabel();
+				
+				Tree->passCodeUp(curNode, child1);
+
+				curNode->code.push_back(child1->goto_ins + " " + iflabel);
+
+				Tree->passCodeUp(curNode, child2);
+
+				Tree->passCodeUp(curNode, child3);
+
+				string outIns = "jmp " + endiflabel;
+            	curNode->code.push_back(outIns);
+				// cout << "Generated label " << iflabel << ", " << endiflabel << " at if_stmt" << "\n";
+            	string labelIns = "label " + iflabel;
+            	curNode->code.push_back(labelIns);
+
+				Tree->passCodeUp(curNode, child4);
+
+            	curNode->code.push_back("label " + endiflabel);
+			}
+
+
+		}
+		;
+
+
+else_part: ELSE 
+			{
+				currBlock = new SYMBOL_BLOCK();
+				currBlock->name = "BLOCK" + to_string(counterr);
+				counterr++;
+				SYMBOL_TABLE.push_back(currBlock);
+				Var_Scope.push_back(currBlock);
+			}
+			decl stmt_list 
+			{
+				Var_Scope.pop_back();
+				($$) = new AST_Node();
+				AST_Node* currNode = ($$);
+
+				AST_Node* child1 = ($3);
+	if (child1)
+	($$)->children.push_back(child1);
+				AST_Node* child2 = ($4);
+
+	if (child2)
+	($$)->children.push_back(child2);
+
+				if (child1){
+					Tree->passCodeUp(currNode, child1);
+				}
+
+				if (child2){
+					Tree->passCodeUp(currNode, child2);
+				}
+			}			
+			| %empty {($$) = NULL;};
+
+cond: expr compop expr
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($1);
+	AST_Node* child2 = ($2);
+	AST_Node* child3 = ($3);
+
+	
+		Tree->passCodeUp(currNode, child1);
+		Tree->passCodeUp(currNode, child3);
+	
+
+	string labell;
+    // string outlabel = Tree->getNewLabel();
+
+    string cmpIns = "";
+
+        if (child1->type == "INT" || child1->type == "i") 
+        {	
+			if ((typeMap.find(child1->exprReg) != typeMap.end()) && (typeMap.find(child3->exprReg) != typeMap.end()) || child3->exprReg.substr(0,1) == "$"){
+				string reg = Tree->getNewReg();
+				cmpIns = "move " + child3->exprReg + " " + reg;
+				cmpIns += "\n";
+				cmpIns += "cmpi " + child1->exprReg + " " + reg;
+			} else{
+            	cmpIns = "cmpi " + child1->exprReg + " " + child3->exprReg;
+			}
+        } 
+        else if (child1->type == "FLOAT" ||  child1->type == "r")
+        {	
+			if ((typeMap.find(child1->exprReg) != typeMap.end()) && (typeMap.find(child3->exprReg) != typeMap.end()) || child3->exprReg.substr(0,1) == "$"){
+				string reg = Tree->getNewReg();
+				cmpIns = "move " + child3->exprReg + " " + reg;
+				cmpIns += "\n";
+				cmpIns += "cmpr " + child1->exprReg + " " + reg;
+			} else{
+            cmpIns = "cmpr " + child1->exprReg + " " + child3->exprReg;
+			}
+        }
+
+		string condIns = child2->goto_ins + " " + labell;
+
+        currNode->code.push_back(cmpIns);
+        
+        // currNode->code.push_back(condIns);
+
+        // currNode->label = labell;
+
+        // currNode->outlabel = outlabel;
+
+		currNode->goto_ins = child2->goto_ins;
+}
+;
+
+compop: LESSTHAN 
+{
+	($$) = new AST_Node();
+	($$)->goto_ins = "jge";
+}
+| GREATERTHAN
+{
+	($$) = new AST_Node();
+	($$)->goto_ins = "jle";
+}
+| EQUALTO
+{
+	($$) = new AST_Node();
+	($$)->goto_ins = "jne";
+}
+| NOT EQUALTO 
+{
+	($$) = new AST_Node();
+	($$)->goto_ins = "jeq";
+}
+| LESSTHAN EQUALTO 
+{
+	($$) = new AST_Node();
+	($$)->goto_ins = "jgt";
+}
+| GREATERTHAN EQUALTO
+{
+	($$) = new AST_Node();
+	($$)->goto_ins = "jlt";
+}
+;
+
+while_stmt: WHILE 
+			{
+				currBlock = new SYMBOL_BLOCK();
+				currBlock->name = "BLOCK" + to_string(counterr);
+				counterr++;
+				SYMBOL_TABLE.push_back(currBlock);
+				Var_Scope.push_back(currBlock);
+			} 
+			OPENPARAN cond CLOSEPARAN decl aug_stmt_list ENDWHILE {
+				
+				Var_Scope.pop_back();
+				($$) = new AST_Node();
+				AST_Node* currNode = ($$);
+				AST_Node* child1 = ($4);
+
+	if (child1)
+	($$)->children.push_back(child1);
+				AST_Node* child2 = ($6);
+	
+	if (child2)
+	($$)->children.push_back(child2);
+				AST_Node* child3 = ($7);
+	if (child3)
+	($$)->children.push_back(child3);
+
+				string whilelabel = Tree->getNewLabel();
+				string whileendlabel = Tree->getNewLabel();
+
+				currNode->code.push_back("label " + whilelabel);
+
+				// cout << "Generated label " << whilelabel << ", " << whileendlabel << " at while_stmt" << "\n";
+
+				Tree->passCodeUp(currNode, child1);
+
+				currNode->code.push_back(child1->goto_ins + " " + whileendlabel);
+
+				Tree->passCodeUp(currNode, child2);
+				Tree->passCodeUp(currNode, child3);
+
+				currNode->code.push_back("jmp " + whilelabel);
+				currNode->code.push_back("label " + whileendlabel);
+
+				// for (int i = 0; i < currNode->code.size(); i++){
+				// 	if (currNode->code[i] == "brk"){
+				// 		currNode->code[i] = "jmp " + whileendlabel;
+				// 	}
+
+				// 	if (currNode->code[i] == "cnt"){
+				// 		currNode->code[i] = "jmp " + whilelabel;
+				// 	}
+				// }
+
+				for (string& code: currNode->code){
+					if (code == "brk"){
+						code = "jmp " + whileendlabel;
+					}
+
+					if (code == "cnt"){
+						code = "jmp " + whilelabel;
+					}
+				}
+
+			};
+
+aug_stmt_list: aug_stmt aug_stmt_list 
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($1);
+	AST_Node* child2 = ($2);
+
+	Tree->passCodeUp(currNode, child1);
+	Tree->passCodeUp(currNode, child2);	
+}
+| %empty {($$) = NULL;};
+
+aug_stmt: base_stmt
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($1);
+	Tree->passCodeUp(currNode, child1);
+
+}
+| aug_if_stmt
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($1);
+	Tree->passCodeUp(currNode, child1);
+}
+| while_stmt
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($1);
+	Tree->passCodeUp(currNode, child1);
+}
+| CONTINUE SEMICOLON 
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	
+	string code = "cnt";
+	currNode->code.push_back(code);
+}
+| BREAK SEMICOLON
+{
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	
+	string code = "brk";
+	currNode->code.push_back(code);
+}
+;
+
+aug_if_stmt: 
+	IF OPENPARAN
+	{
+		currBlock = new SYMBOL_BLOCK();
+				currBlock->name = "BLOCK" + to_string(counterr);
+				counterr++;
+				SYMBOL_TABLE.push_back(currBlock);
+				Var_Scope.push_back(currBlock);
+	}
+	 cond CLOSEPARAN decl aug_stmt_list
+	 {
+		Var_Scope.pop_back();
+	 }
+	  aug_else_part ENDIF
+
+	{
+	AST_Node* currNode = new AST_Node();
+	($$) = currNode;
+	AST_Node* child1 = ($4);
+
+	if(child1)
+	($$)->children.push_back(child1);
+
+	AST_Node* child2 = ($6);
+	
+	if (child2)
+	($$)->children.push_back(child2);
+	AST_Node* child3 = ($7);
+
+	if (child3)
+	($$)->children.push_back(child3);
+
+
+	AST_Node* child4 = ($9);
+
+
+	if (child4)
+	($$)->children.push_back(child4);
+
+
+	if (child1){
+		string label = Tree->getNewLabel();
+		string out = Tree->getNewLabel();
+		
+		// cout << "Generated label " << label << ", " << out << " at aug_if_stmt" << "\n";
+		Tree->passCodeUp(currNode, child1);
+
+		currNode->code.push_back(child1->goto_ins + " " + label);
+
+		Tree->passCodeUp(currNode, child2);
+		Tree->passCodeUp(currNode, child3);
+		
+		currNode->code.push_back("jmp " + out);
+		currNode->code.push_back("label " + label);
+
+		Tree->passCodeUp(currNode, child4);
+
+		currNode->code.push_back("label " + out);
+	}
+
+}
+;
+
+
+aug_else_part: ELSE {
+	currBlock = new SYMBOL_BLOCK();
+				currBlock->name = "BLOCK" + to_string(counterr);
+				counterr++;
+				SYMBOL_TABLE.push_back(currBlock);
+				Var_Scope.push_back(currBlock);
+} decl aug_stmt_list 
+{	
+	Var_Scope.pop_back();
+	($$) = new AST_Node();
+	AST_Node* currNode = ($$);
+	AST_Node* child1 = ($3);
+	
+	if (child1)
+	($$)->children.push_back(child1);
+
+	AST_Node* child2 = ($4);
+
+	if (child2)
+	($$)->children.push_back(child1);
+
+	Tree->passCodeUp(currNode, child1);
+	Tree->passCodeUp(currNode, child2);	
+}
+|
+{
+	($$) = NULL;
+}
+%empty;
+
+%%
+int yyerror(std::string msg){
+	// cout << "Error\n" << msg << "\n";
+	printf("Not accepted\n");
+	return -1;
+}
+
