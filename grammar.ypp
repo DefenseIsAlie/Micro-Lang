@@ -129,7 +129,10 @@ program: PROGRAM id BEGIN_PROG
 
 	Var_Scope.pop_back();
 	Tree->Root = ($5);	
-	Tree->printCode();
+	// Tree->printCode();
+	// Tree->splitCode(Tree->Root->code[0]);
+	Tree->registerAllocation();
+	Tree->printfinalcode();
 
 	// for (auto x : typeMap){
 	// 	cout << x.first << ": " << x.second << "\n";

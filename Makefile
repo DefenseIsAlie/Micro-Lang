@@ -4,7 +4,7 @@ entry: compiler
 compiler: main.cpp specification.l grammar.ypp
 	bison -d -t grammar.ypp -o grammar.cpp
 	flex --outfile=lexxer.cpp specification.l
-	g++ -g main.cpp grammar.cpp lexxer.cpp -o compiler
+	g++ -O3 main.cpp grammar.cpp lexxer.cpp -o compiler
 
 
 build/parser.cpp: src/grammar.y
