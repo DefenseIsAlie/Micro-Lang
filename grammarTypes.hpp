@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <vector>
 #include <utility>
+#include <algorithm>
 #include <sstream>
 #include <string.h>
 using namespace std;
@@ -111,7 +112,9 @@ class three_AC{
 	public:
 	string opcode;
 	string addr1;
+	bool addr1_isreg;
 	string addr2;
+	bool addr2_isreg;
 
 	three_AC(){}
 
@@ -200,6 +203,10 @@ class AST{
 	vector<int> mul;
 
 	vector<string> final_code;
+	unordered_map<string, string> RegisterDecl;
+
+	int reg[4];
+
 
 	AST(){
 
@@ -215,6 +222,16 @@ class AST{
 		}
 	}
 
+	bool isNum(string s){
+		for (int i = 0; i < s.length(); i++)
+		{
+			if (s.substr(i,1) != "0" && s.substr(i,1) != "1" && s.substr(i,1) != "2" && s.substr(i,1) != "3" && s.substr(i,1) != "4" && s.substr(i,1) != "5" && s.substr(i,1) != "6" && s.substr(i,1) != "7" && s.substr(i,1) != "8" && s.substr(i,1) != "9"){
+				return false;
+			}
+		}
+		return true;
+	}
+
 	three_AC* splitCode(string code){
 		three_AC* temp = new three_AC();
 
@@ -223,6 +240,7 @@ class AST{
 
 		int num = 1;
 		string lastaddr;
+		string type;
     	while (ss >> word) {
 			
 			if (num<3)
@@ -231,10 +249,16 @@ class AST{
 				if (num==1)
 				{
 					temp->opcode = word;
+
 				}
 
 				if (num==2)	{
 					temp->addr1 = word;
+					if (word.substr(0,1) == "r" && isNum(word.substr(1, word.length()-1)))
+					{
+						temp->addr1_isreg = true;
+						// cout << word << "\n";
+					}
 				}
 				
 			} else {
@@ -248,22 +272,37 @@ class AST{
 		if (num>=3)
 		{
 			temp->addr2 = lastaddr;
+			if (lastaddr.substr(0,1) == "r" && isNum(lastaddr.substr(1, lastaddr.length()-1))){
+				temp->addr2_isreg = true;
+				// cout << lastaddr << "\n";
+			}
 		}
 		
 
 		return temp;
 	}
 
+	void __alloc_reg(three_AC* temp){
+		
+	}
+
 	void registerAllocation(){
+
+		for (int i = 0; i <= this->regno+1; i++){
+			this->final_code.push_back("var T200010021Var" + to_string(i));
+		}
+
 		for (auto code : this->Root->code){
 			char* tok = strtok((char*)code.c_str(), "\n");
 			three_AC* temp = splitCode(string(tok));
-			this->final_code.push_back(temp->code());
+			__alloc_reg(temp);
+			// this->final_code.push_back(temp->code());
 
 			while (tok=strtok(NULL, "\n"))
 			{
 				temp = splitCode(string(tok));
-				this->final_code.push_back(temp->code());
+				__alloc_reg(temp);
+				// this->final_code.push_back(temp->code());
 			}
 			
 		}
