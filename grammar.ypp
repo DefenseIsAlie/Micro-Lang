@@ -957,7 +957,7 @@ expr: expr_prefix factor
 				} 
 			}
 			// addop x y r3
-			string code1 = "move " + child1->exprReg + " " + curNode->exprReg;;
+			string code1 = "move " + child1->exprReg + " " + curNode->exprReg;
 			string code = child1->expr_prefix_op + " " + child2->exprReg + " " + curNode->exprReg;
 			// cout << code1 << "\n" << code << "\n";
 			curNode->code.push_back(code1);
@@ -1452,6 +1452,9 @@ cond: expr compop expr
 				cmpIns += "\n";
 				cmpIns += "cmpi " + child1->exprReg + " " + reg;
 			} else{
+				string reg = Tree->getNewReg();
+				cmpIns = "move " + child3->exprReg + " " + reg;
+				cmpIns += "\n";
             	cmpIns = "cmpi " + child1->exprReg + " " + child3->exprReg;
 			}
         } 
@@ -1463,7 +1466,10 @@ cond: expr compop expr
 				cmpIns += "\n";
 				cmpIns += "cmpr " + child1->exprReg + " " + reg;
 			} else{
-            cmpIns = "cmpr " + child1->exprReg + " " + child3->exprReg;
+				string reg = Tree->getNewReg();
+				cmpIns = "move " + child3->exprReg + " " + reg;
+				cmpIns += "\n";
+            	cmpIns = "cmpr " + child1->exprReg + " " + child3->exprReg;
 			}
         }
 

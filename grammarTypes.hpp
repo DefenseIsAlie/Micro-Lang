@@ -232,7 +232,7 @@ class AST{
 			// cout << "hit error" << "\n";
 			code2 = temp->code();
 
-			code3 = "move " + reg + " " + prevaddr;
+			// code3 = "move " + reg + " " + prevaddr;
 			modbit = true;
 		}
 
@@ -241,7 +241,7 @@ class AST{
 		{	
 			modcode += code1; modcode += "\n";
 			modcode += code2; modcode += "\n";
-			modcode += code3; modcode += "\n";
+			// modcode += code3; modcode += "\n";
 
 			code = modcode;
 		}
