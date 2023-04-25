@@ -216,6 +216,58 @@ class AST{
 
 	}
 
+	void doubleMemFix(three_AC* temp, string&code){
+		string modcode;
+		bool modbit = false;
+		string code1, code2, code3;
+		// if (temp->opcode.substr(0, 3) == "add"){
+		// 	cout << "substr working " << "\n";
+		// }
+		if ((temp->opcode.substr(0, 3) == "add" || temp->opcode.substr(0, 3) == "sub" || temp->opcode.substr(0, 3) == "mul" || temp->opcode.substr(0, 3) == "div" || temp->opcode.substr(0, 3) == "cmp") && !temp->addr1_isreg && !temp->addr2_isreg)
+		{
+			string reg = this->getNewReg();
+			code1 = "move " + temp->addr2 + " " + reg;
+			string prevaddr = temp->addr2;
+			temp->addr2 = reg;
+			// cout << "hit error" << "\n";
+			code2 = temp->code();
+
+			code3 = "move " + reg + " " + prevaddr;
+			modbit = true;
+		}
+
+
+		if (modbit)
+		{	
+			modcode += code1; modcode += "\n";
+			modcode += code2; modcode += "\n";
+			modcode += code3; modcode += "\n";
+
+			code = modcode;
+		}
+
+	}
+
+	void fixCode(){
+		for (auto& code : this->Root->code){
+			char* tok = strtok((char*)code.c_str(), "\n");
+			three_AC* temp = splitCode(string(tok));
+			doubleMemFix(temp, code);
+			// __alloc_reg(temp);
+			// this->final_code.push_back(temp->code());
+			delete temp;
+			while (tok=strtok(NULL, "\n"))
+			{
+				temp = splitCode(string(tok));
+				doubleMemFix(temp, code);
+				// __alloc_reg(temp);
+				// this->final_code.push_back(temp->code());
+				delete temp;
+			}
+
+		}
+	}
+
 	void printCode(){
 		for(auto code : this->Root->code){
 			cout << code << "\n";
@@ -258,6 +310,8 @@ class AST{
 					{
 						temp->addr1_isreg = true;
 						// cout << word << "\n";
+					} else{
+						temp->addr1_isreg = false;
 					}
 				}
 				
@@ -275,6 +329,8 @@ class AST{
 			if (lastaddr.substr(0,1) == "r" && isNum(lastaddr.substr(1, lastaddr.length()-1))){
 				temp->addr2_isreg = true;
 				// cout << lastaddr << "\n";
+			} else{
+				temp->addr2_isreg = false;
 			}
 		}
 		
@@ -283,6 +339,39 @@ class AST{
 	}
 
 	void __alloc_reg(three_AC* temp){
+
+		string ac1 = "";
+		string ac2 = "";
+		if (temp->addr1_isreg && temp->addr1 != ""){
+			// cout << temp->addr1.substr(1, temp->addr1.length()) << "\n";
+			string varno = temp->addr1.substr(1, temp->addr1.length());
+			string precode = "move T200010021Var" + varno + " " + "r0";
+			temp->addr1 = "r0";
+			ac1 = "move r0 T200010021Var" + varno;
+
+
+			this->final_code.push_back(precode);
+			// this->final_code.push_back(temp->code());
+			// this->final_code.push_back(aftercode); 
+		}
+
+		if (temp->addr2_isreg && temp->addr2 != ""){
+			// cout << temp->addr2.substr(1, temp->addr2.length()) << "\n";
+			string varno = temp->addr2.substr(1, temp->addr2.length());
+			string precode = "move T200010021Var" + varno + " " + "r1";
+			temp->addr2 = "r1";
+			ac2 = "move r1 T200010021Var" + varno;
+
+			this->final_code.push_back(precode);
+		}
+		
+		this->final_code.push_back(temp->code());
+
+		if (ac1 != "")
+			this->final_code.push_back(ac1);
+
+		if (ac2 != "")
+			this->final_code.push_back(ac2);
 		
 	}
 

@@ -131,6 +131,7 @@ program: PROGRAM id BEGIN_PROG
 	Tree->Root = ($5);	
 	// Tree->printCode();
 	// Tree->splitCode(Tree->Root->code[0]);
+	Tree->fixCode();
 	Tree->registerAllocation();
 	Tree->printfinalcode();
 
